@@ -1,1 +1,71 @@
 
+{
+ "name": "Build APK HDP Studio",
+ "on": {
+  "push": {},
+  "workflow_dispatch": {}
+ },
+ "jobs": {
+  "build": {
+   "runs-on": "ubuntu-latest",
+   "steps": [
+    {
+     "name": "Siapkan Node.js",
+     "uses": "actions/setup-node@v4",
+     "with": {
+      "node-version": 20
+     }
+    },
+    {
+     "name": "Siapkan Java 17",
+     "uses": "actions/setup-java@v4",
+     "with": {
+      "distribution": "temurin",
+      "java-version": 17
+     }
+    },
+    {
+     "name": "Ambil kode dari repository",
+     "uses": "actions/checkout@v4"
+    },
+    {
+     "name": "Ekstrak HDP-1.zip & HDP-2.zip",
+     "run": "ls -la\nfor z in HDP-1.zip HDP-2.zip; do\n  [ -f \"$z\" ] || { echo \"::error::File $z belum diunggah ke repository (taruh di halaman utama repo).\"; exit 1; }\ndone\nmkdir -p app/www app/assets\nunzip -o -q HDP-1.zip -d app/www\nunzip -o -q HDP-2.zip -d app/www\nmv app/www/_build/icon-only.png app/assets/icon-only.png\nmv app/www/_build/splash.png app/assets/splash.png\nmv app/www/_build/icon-foreground.png app/assets/icon-foreground.png\nmv app/www/_build/icon-background.png app/assets/icon-background.png\ncp app/assets/splash.png app/assets/splash-dark.png\nrmdir app/www/_build\n[ -f app/www/index.html ] || { echo \"::error::index.html tidak ditemukan di HDP-1.zip\"; exit 1; }\nN=$(ls app/www/music/*.mp3 | wc -l); echo \"Musik: $N file\"\n[ \"$N\" -eq 9 ] || { echo \"::error::Musik harus 9 file, ditemukan $N\"; exit 1; }\n"
+    },
+    {
+     "name": "Siapkan proyek Capacitor",
+     "working-directory": "app",
+     "run": "cat > package.json <<'JSON'\n{\n  \"name\": \"hdp-studio\",\n  \"version\": \"2.4.1\",\n  \"private\": true,\n  \"dependencies\": {\n    \"@capacitor/android\": \"6.2.3\",\n    \"@capacitor/core\": \"6.2.3\",\n    \"@capacitor/filesystem\": \"6.0.4\",\n    \"@capacitor/share\": \"6.0.4\",\n    \"@ffmpeg/core\": \"0.12.6\",\n    \"@ffmpeg/ffmpeg\": \"0.12.10\",\n    \"@ffmpeg/util\": \"0.12.1\"\n  },\n  \"devDependencies\": {\n    \"@capacitor/assets\": \"3.0.5\",\n    \"@capacitor/cli\": \"6.2.3\"\n  }\n}\nJSON\ncat > capacitor.config.json <<'JSON'\n{\n  \"appId\": \"com.hadiansyah.hdpstudio\",\n  \"appName\": \"HDP Studio\",\n  \"webDir\": \"www\",\n  \"server\": { \"androidScheme\": \"https\" },\n  \"android\": { \"allowMixedContent\": false, \"captureInput\": true },\n  \"plugins\": { \"SplashScreen\": { \"launchShowDuration\": 600, \"backgroundColor\": \"#0a1430\" } }\n}\nJSON\nnpm install --no-audit --no-fund\n"
+    },
+    {
+     "name": "Salin mesin MP4 (offline)",
+     "working-directory": "app",
+     "run": "mkdir -p www/ffmpeg\ncp node_modules/@ffmpeg/ffmpeg/dist/umd/ffmpeg.js node_modules/@ffmpeg/ffmpeg/dist/umd/814.ffmpeg.js www/ffmpeg/\ncp node_modules/@ffmpeg/util/dist/umd/index.js www/ffmpeg/util.js\ncp node_modules/@ffmpeg/core/dist/esm/ffmpeg-core.js node_modules/@ffmpeg/core/dist/esm/ffmpeg-core.wasm www/ffmpeg/\n"
+    },
+    {
+     "name": "Buat proyek Android + izin mikrofon",
+     "working-directory": "app",
+     "run": "npx cap add android\nMAN=android/app/src/main/AndroidManifest.xml\nsed -i 's#<uses-permission android:name=\"android.permission.INTERNET\" />#<uses-permission android:name=\"android.permission.INTERNET\" />\\n    <uses-permission android:name=\"android.permission.RECORD_AUDIO\" />\\n    <uses-permission android:name=\"android.permission.MODIFY_AUDIO_SETTINGS\" />#' $MAN\ngrep -q RECORD_AUDIO $MAN && echo \"Izin mikrofon OK\"\n"
+    },
+    {
+     "name": "Ikon & splash",
+     "working-directory": "app",
+     "run": "npx capacitor-assets generate --android --iconBackgroundColor '#0a1430' --iconBackgroundColorDark '#0a1430' --splashBackgroundColor '#0a1430' --splashBackgroundColorDark '#0a1430'"
+    },
+    {
+     "name": "Build APK",
+     "working-directory": "app",
+     "run": "npx cap sync android\ncd android && chmod +x gradlew && ./gradlew assembleDebug --no-daemon\ncp app/build/outputs/apk/debug/app-debug.apk ../../HDP-Studio-v2.4.1.apk\n"
+    },
+    {
+     "name": "Unggah APK",
+     "uses": "actions/upload-artifact@v4",
+     "with": {
+      "name": "HDP-Studio-APK",
+      "path": "HDP-Studio-v2.4.1.apk"
+     }
+    }
+   ]
+  }
+ }
+}
